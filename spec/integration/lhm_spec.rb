@@ -17,6 +17,23 @@ describe Lhm do
       table_create(:permissions)
     end
 
+    describe "when there is a replication lag" do
+
+      before do
+        slave { execute("STOP SLAVE SQL_THREAD;") }
+        50.times { |n| execute("insert into tracks set id = #{n + 1}, public = 1") }
+        sleep(5)
+      end
+
+      it "Seconds_Behind_Master is not zero" do
+        slave do
+          execute("START SLAVE SQL_THREAD;")
+          delay = execute("SHOW SLAVE STATUS;").each(:as => :hash).first['Seconds_Behind_Master'] while !delay
+          delay.wont_equal 0
+        end
+      end
+    end
+
     describe "when providing a subset of data to copy" do
 
       before do
