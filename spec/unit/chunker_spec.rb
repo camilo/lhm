@@ -55,6 +55,7 @@ describe Lhm::Chunker do
       @connection.verify
     end
 
+
     it "handles stride changes during execution" do
       #roll our own stubbing
       def @throttler.stride
