@@ -29,6 +29,8 @@ describe Lhm::Chunker do
       slave do
         count_all(@destination.name).must_equal(23)
       end
+
+     printer.verify
     end
   end
 end
