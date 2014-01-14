@@ -99,6 +99,7 @@ module Lhm
         params = (defined?(@@logger_params) && @@logger_params) ? @@logger_params : DEFAULT_LOGGER_OPTIONS
         logger = Logger.new(params[:file])
         logger.level = params[:level]
+        logger.formatter = nil
         logger
       end
   end
