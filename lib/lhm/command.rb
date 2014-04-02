@@ -7,7 +7,7 @@ module Lhm
 
   module Command
     def run(&block)
-      Lhm.logger.error "Starting run of class=#{self.class}"
+      Lhm.logger.info "Starting run of class=#{self.class}"
       validate
 
       if(block_given?)
