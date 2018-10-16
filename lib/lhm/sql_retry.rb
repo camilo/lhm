@@ -52,6 +52,7 @@ module Lhm
       {
         "ActiveRecord::LockWaitTimeout" => nil,
         "ActiveRecord::Deadlocked" => nil,
+	"ActiveRecord::QueryTimedout" => nil,
         "Mysql2::Error" => [
           /Lock wait timeout exceeded/,
           /Deadlock found when trying to get lock/,
@@ -70,7 +71,9 @@ module Lhm
     def retry_error_classes
       error_classes = Hash.new
       retry_classes_list.each do |k, v|
-        error_classes[Kernel.const_get(k)] = v
+        if Object.const_defined?(k)
+          error_classes[Kernel.const_get(k)] = v
+	end
       end
       error_classes
     end
