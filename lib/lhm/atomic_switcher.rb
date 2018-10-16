@@ -3,7 +3,7 @@
 
 require 'lhm/command'
 require 'lhm/migration'
-require 'lhm/sql_helper'
+require 'lhm/sql_retry'
 
 module Lhm
   # Switches origin with destination table using an atomic rename.
@@ -16,34 +16,37 @@ module Lhm
 
     attr_reader :connection
 
-    def initialize(migration, connection = nil)
+    def initialize(migration, connection = nil, options = {})
       @migration = migration
       @connection = connection
       @origin = migration.origin
       @destination = migration.destination
-    end
-
-    def statements
-      atomic_switch
+      @retry_helper = SqlRetry.new(
+        @connection,
+        {
+          log_prefix: "AtomicSwitcher"
+        }.merge!(options.fetch(:retriable, {}))
+      )
     end
 
     def atomic_switch
-      [
-        "rename table `#{ @origin.name }` to `#{ @migration.archive_name }`, " +
-        "`#{ @destination.name }` to `#{ @origin.name }`"
-      ]
+      "rename table `#{ @origin.name }` to `#{ @migration.archive_name }`, " \
+      "`#{ @destination.name }` to `#{ @origin.name }`"
     end
 
     def validate
-      unless @connection.table_exists?(@origin.name) &&
-             @connection.table_exists?(@destination.name)
+      unless @connection.data_source_exists?(@origin.name) &&
+             @connection.data_source_exists?(@destination.name)
         error "`#{ @origin.name }` and `#{ @destination.name }` must exist"
       end
     end
 
-  private
+    private
+
     def execute
-      @connection.sql(statements)
+      @retry_helper.with_retries do |retriable_connection|
+        retriable_connection.execute atomic_switch
+      end
     end
   end
 end

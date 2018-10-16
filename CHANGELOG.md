@@ -1,3 +1,65 @@
+# 3.2.2 (Oct 11, 2018)
+
+* Try to take a higher lock_wait_timeout value than others  (https://github.com/Shopify/lhm/pull/60)
+
+# 3.2.1 (Oct 11, 2018)
+
+* Retry on `MySQL::Error::Timeout` (https://github.com/Shopify/lhm/pull/57)
+* Retry 20 times by default (https://github.com/Shopify/lhm/pull/58)
+
+# 3.2.0 (Sep 4, 2018)
+
+* Fix Slave lag throttler database config (https://github.com/Shopify/lhm/pull/55)
+* Loosen dependency on retriable gem (https://github.com/Shopify/lhm/pull/54)
+* Overhaul retries for deadlocks, wait timeouts on Chunker, Entangler, and AtomicSwitcher (https://github.com/Shopify/lhm/pull/51)
+
+# 3.1.1
+
+* Cleanup tables between tests (https://github.com/Shopify/lhm/pull/48)
+* Ensure all table names are less than 64 characters (https://github.com/Shopify/lhm/pull/49)
+
+# 3.1.0
+
+* Unify Entangler and AtomicSwitcher retry interface (https://github.com/Shopify/lhm/pull/39)
+* Remove scripts replaced by dbdeployer (https://github.com/Shopify/lhm/pull/40)
+* Rename lhmn_ tables to lhma_ to avoid IBP stalls (https://github.com/Shopify/lhm/pull/41)
+
+# 3.0.0
+
+* Drop support for throttle and stride options. Use `throttler`, instead:
+```
+Lhm.change_table :users, throttler: [:time_throttler, {stride: x}] do
+end
+```
+* #118 - Truncate long trigger names. (@sj26)
+* #114 - Update chunker requirements (@bjk-soundcloud)
+* #98 - Add slave lag throttler. (@camilo, @jasonhl)
+* #92 - Fix check for table requirement before starting a lhm.(@hannestyden)
+* #93 - Makes the atomic switcher retry on metadata locks (@camilo)
+* #63 - Sets the LHM's session lock wait timeout variables (@camilo)
+* #75 - Remove DataMapper and ActiveRecord 2.x support (@camilo)
+
+# 2.2.0 (Jan 16, 2015)
+
+* #84 - Require index names to be strings or symbols (Thibaut)
+* #39 - Adding the ability to rename columns (erikogan)
+* #67 - Allow for optional time filter on .cleanup (joelr)
+
+# 2.1.0 (July 31, 2014)
+
+* #48 - Add percentage output for migrations (@arthurnn)
+* #60 - Quote table names (@spickermann)
+* #59 - Escape table name in select_limit and select_start methods (@stevehodgkiss)
+* #57 - Ensure chunking 'where' clause handled separately (@rentalcustard)
+* #54 - Chunker handle stride changes (@rentalcustard)
+* #52 - Implement ability to control timeout and stride from Throttler (@edmundsalvacion)
+* #51 - Ensure Lhm.cleanup removes temporary triggers (@edmundsalvacion)
+* #46 - Allow custom throttler (@arthurnn)
+
+# 2.0.0 (July 10, 2013)
+
+* #44 - Conditional migrations (@durran)
+
 # 1.3.0 (May 28, 2013)
 
 * Add Lhm.cleanup method for removing copy tables, thanks @bogdan

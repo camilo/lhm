@@ -15,36 +15,78 @@ module Lhm
   # and replaced by destination.
   class Invoker
     include SqlHelper
+    LOCK_WAIT_TIMEOUT_DELTA = 10
+      INNODB_LOCK_WAIT_TIMEOUT_MAX=1073741824.freeze # https://dev.mysql.com/doc/refman/5.7/en/innodb-parameters.html#sysvar_innodb_lock_wait_timeout
+      LOCK_WAIT_TIMEOUT_MAX=31536000.freeze # https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html
 
     attr_reader :migrator, :connection
 
-    def initialize(origin, connection, options)
+    def initialize(origin, connection)
       @connection = connection
-      @migrator = Migrator.new(origin, connection, options)
+      @migrator = Migrator.new(origin, connection)
     end
 
-    def run(options = {})
-      Lhm.logger.info "Starting LHM run on table=#{@migrator.name}"
+    def set_session_lock_wait_timeouts
+      global_innodb_lock_wait_timeout = @connection.select_one("SHOW GLOBAL VARIABLES LIKE 'innodb_lock_wait_timeout'")
+      global_lock_wait_timeout = @connection.select_one("SHOW GLOBAL VARIABLES LIKE 'lock_wait_timeout'")
 
-      if !options.include?(:atomic_switch)
-        if supports_atomic_switch?
-          options[:atomic_switch] = true
-        else
-          raise Error.new(
-            "Using mysql #{version_string}. You must explicitly set " +
-            "options[:atomic_switch] (re SqlHelper#supports_atomic_switch?)")
+      if global_innodb_lock_wait_timeout
+        desired_innodb_lock_wait_timeout = global_innodb_lock_wait_timeout['Value'].to_i + LOCK_WAIT_TIMEOUT_DELTA
+        if desired_innodb_lock_wait_timeout <= INNODB_LOCK_WAIT_TIMEOUT_MAX
+          @connection.execute("SET SESSION innodb_lock_wait_timeout=#{desired_innodb_lock_wait_timeout}")
         end
       end
 
-      migration = @migrator.run
+      if global_lock_wait_timeout
+        desired_lock_wait_timeout = global_lock_wait_timeout['Value'].to_i + LOCK_WAIT_TIMEOUT_DELTA
+        if desired_lock_wait_timeout <= LOCK_WAIT_TIMEOUT_MAX
+          @connection.execute("SET SESSION lock_wait_timeout=#{desired_lock_wait_timeout}")
+        end
+      end
+    end
 
-      Entangler.new(migration, @connection).run do
+    def run(options = {})
+      normalize_options(options)
+      set_session_lock_wait_timeouts
+      migration = @migrator.run
+      entangler = Entangler.new(migration, @connection, options)
+
+      entangler.run do
         Chunker.new(migration, @connection, options).run
+        raise "Required triggers do not exist" unless triggers_still_exist?(entangler)
         if options[:atomic_switch]
           AtomicSwitcher.new(migration, @connection).run
         else
           LockedSwitcher.new(migration, @connection).run
         end
+      end
+    end
+
+    def triggers_still_exist?(entangler)
+      triggers = connection.select_values("SHOW TRIGGERS LIKE '%#{migrator.origin.name}'").select { |name| name =~ /^lhmt/ }
+      triggers.sort == entangler.expected_triggers.sort
+    end
+
+    private
+
+    def normalize_options(options)
+      Lhm.logger.info "Starting LHM run on table=#{@migrator.name}"
+
+      unless options.include?(:atomic_switch)
+        if supports_atomic_switch?
+          options[:atomic_switch] = true
+        else
+          raise Error.new(
+            "Using mysql #{version_string}. You must explicitly set " \
+            'options[:atomic_switch] (re SqlHelper#supports_atomic_switch?)')
+        end
+      end
+
+      if options[:throttler]
+        throttler_options = options[:throttler_options] || {}
+        options[:throttler] = Throttler::Factory.create_throttler(options[:throttler], throttler_options)
+      else
+        options[:throttler] = Lhm.throttler
       end
 
     rescue => e

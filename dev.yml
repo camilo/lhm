@@ -1,0 +1,19 @@
+name: lhm
+up:
+  - homebrew:
+      - openssl
+      - shopify/shopify/mysql-client
+      - wget
+  - ruby: 2.5.0
+  - bundler
+  - custom:
+      name: Database
+      met?: test -f spec/integration/database.yml && test "$(./dbdeployer/sandboxes/rsandbox_5_7_22/status_all | grep on  | wc -l | xargs echo)" = "2"
+      meet: ./dbdeployer/install.sh
+      down: ./dbdeployer/sandboxes/rsandbox_5_7_22/stop_all
+
+commands:
+  unit: bundle exec rake unit
+  int: bundle exec rake integration
+  test: bundle exec rake unit && bundle exec rake integration
+  cov: rm -rf coverage; COV=1 bundle exec rake unit && bundle exec rake integration; open coverage/index.html

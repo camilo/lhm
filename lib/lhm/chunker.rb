@@ -3,6 +3,8 @@
 require 'lhm/command'
 require 'lhm/sql_helper'
 require 'lhm/printer'
+require 'lhm/chunk_insert'
+require 'lhm/chunk_finder'
 
 module Lhm
   class Chunker
@@ -11,95 +13,51 @@ module Lhm
 
     attr_reader :connection
 
-    # Copy from origin to destination in chunks of size `stride`. Sleeps for
-    # `throttle` milliseconds between each stride.
+    # Copy from origin to destination in chunks of size `stride`.
+    # Use the `throttler` class to sleep between each stride.
     def initialize(migration, connection = nil, options = {})
       @migration = migration
       @connection = connection
-      @stride = options[:stride] || 40_000
-      @throttle = options[:throttle] || 100
-      @start = options[:start] || select_start
-      @limit = options[:limit] || select_limit
+      @chunk_finder = ChunkFinder.new(migration, connection, options)
+      if @throttler = options[:throttler]
+        @throttler.connection = @connection if @throttler.respond_to?(:connection=)
+      end
+      @start = @chunk_finder.start
+      @limit = @chunk_finder.limit
       @printer = options[:printer] || Printer::Percentage.new
     end
 
-    # Copies chunks of size `stride`, starting from `start` up to id `limit`.
-    def up_to(&block)
-      1.upto(traversable_chunks_size) do |n|
-        yield(bottom(n), top(n))
+    def execute
+      return if @chunk_finder.table_empty?
+      @next_to_insert = @start
+      while @next_to_insert <= @limit || (@start == @limit)
+        stride = @throttler.stride
+        top = upper_id(@next_to_insert, stride)
+        affected_rows = ChunkInsert.new(@migration, @connection, bottom, top).insert_and_return_count_of_rows_created
+        if @throttler && affected_rows > 0
+          @throttler.run
+        end
+        @printer.notify(bottom, @limit)
+        @next_to_insert = top + 1
+        break if @start == @limit
       end
+      @printer.end
     end
 
-    def traversable_chunks_size
-      @limit && @start ? ((@limit - @start + 1) / @stride.to_f).ceil : 0
+    private
+
+    def bottom
+      @next_to_insert
     end
 
-    def bottom(chunk)
-      (chunk - 1) * @stride + @start
-    end
-
-    def top(chunk)
-      [chunk * @stride + @start - 1, @limit].min
-    end
-
-    def copy(lowest, highest)
-      "insert ignore into `#{ destination_name }` (#{ columns }) " +
-      "select #{ select_columns } from `#{ origin_name }` " +
-      "#{ conditions } #{ origin_name }.`#{ @migration.order_column }` between #{ lowest } and #{ highest }"
-    end
-
-    def select_start
-      start = connection.select_value("select min(#{ @migration.order_column }) from #{ origin_name }")
-      start ? start.to_i : nil
-    end
-
-    def select_limit
-      limit = connection.select_value("select max(#{ @migration.order_column }) from #{ origin_name }")
-      limit ? limit.to_i : nil
-    end
-
-    def throttle_seconds
-      @throttle / 1000.0
-    end
-
-  private
-
-    def conditions
-      @migration.conditions ? "#{@migration.conditions} and" : "where"
-    end
-
-    def destination_name
-      @migration.destination.name
-    end
-
-    def origin_name
-      @migration.origin.name
-    end
-
-    def columns
-      @columns ||= @migration.intersection.joined
-    end
-
-    def select_columns
-      @select_columns ||= @migration.intersection.typed(origin_name)
+    def upper_id(next_id, stride)
+      top = connection.select_value("select id from `#{ @migration.origin_name }` where id >= #{ next_id } order by id limit 1 offset #{ stride - 1}")
+      [top ? top.to_i : @limit, @limit].min
     end
 
     def validate
-      if @start && @limit && @start > @limit
-        error("impossible chunk options (limit must be greater than start)")
-      end
-    end
-
-    def execute
-      up_to do |lowest, highest|
-        affected_rows = @connection.update(copy(lowest, highest))
-
-        if affected_rows > 0
-          sleep(throttle_seconds)
-        end
-        @printer.notify(lowest, @limit)
-      end
-      @printer.end
+      return if @chunk_finder.table_empty?
+      @chunk_finder.validate
     end
   end
 end

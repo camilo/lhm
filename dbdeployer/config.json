@@ -1,0 +1,32 @@
+{
+ 	"version": "1.8.0",
+ 	"sandbox-home": "./dbdeployer/sandboxes",
+ 	"sandbox-binary": "./dbdeployer/binaries",
+ 	"use-sandbox-catalog": true,
+ 	"master-slave-base-port": 11000,
+ 	"group-replication-base-port": 12000,
+ 	"group-replication-sp-base-port": 13000,
+ 	"fan-in-replication-base-port": 14000,
+ 	"all-masters-replication-base-port": 15000,
+ 	"multiple-base-port": 16000,
+ 	"group-port-delta": 125,
+ 	"mysqlx-port-delta": 10000,
+ 	"master-name": "master",
+ 	"master-abbr": "m",
+ 	"node-prefix": "node",
+ 	"slave-prefix": "slave",
+ 	"slave-abbr": "s",
+ 	"sandbox-prefix": "msb_",
+ 	"master-slave-prefix": "rsandbox_",
+ 	"group-prefix": "group_msb_",
+ 	"group-sp-prefix": "group_sp_msb_",
+ 	"multiple-prefix": "multi_msb_",
+ 	"fan-in-prefix": "fan_in_msb_",
+ 	"all-masters-prefix": "all_masters_msb_",
+ 	"reserved-ports": [
+ 		1186,
+ 		3306,
+ 		33060
+ 	],
+ 	"timestamp": "Mon Jul 16 17:36:55 AST 2018"
+ }

@@ -3,6 +3,7 @@
 
 require 'lhm/command'
 require 'lhm/sql_helper'
+require 'lhm/sql_retry'
 
 module Lhm
   class Entangler
@@ -13,12 +14,17 @@ module Lhm
 
     # Creates entanglement between two tables. All creates, updates and deletes
     # to origin will be repeated on the destination table.
-    def initialize(migration, connection = nil)
-      @common = migration.intersection
+    def initialize(migration, connection = nil, options = {})
+      @intersection = migration.intersection
       @origin = migration.origin
       @destination = migration.destination
-      @order_column = migration.order_column
       @connection = connection
+      @retry_helper = SqlRetry.new(
+        @connection,
+        {
+          log_prefix: "Entangler"
+        }.merge!(options.fetch(:retriable, {}))
+      )
     end
 
     def entangle
@@ -41,8 +47,8 @@ module Lhm
       strip %Q{
         create trigger `#{ trigger(:ins) }`
         after insert on `#{ @origin.name }` for each row
-        replace into `#{ @destination.name }` (#{ @common.joined }) #{ SqlHelper.annotation }
-        values (#{ @common.typed("NEW") })
+        replace into `#{ @destination.name }` (#{ @intersection.destination.joined }) #{ SqlHelper.annotation }
+        values (#{ @intersection.origin.typed('NEW') })
       }
     end
 
@@ -50,8 +56,8 @@ module Lhm
       strip %Q{
         create trigger `#{ trigger(:upd) }`
         after update on `#{ @origin.name }` for each row
-        replace into `#{ @destination.name }` (#{ @common.joined }) #{ SqlHelper.annotation }
-        values (#{ @common.typed("NEW") })
+        replace into `#{ @destination.name }` (#{ @intersection.destination.joined }) #{ SqlHelper.annotation }
+        values (#{ @intersection.origin.typed('NEW') })
       }
     end
 
@@ -60,37 +66,49 @@ module Lhm
         create trigger `#{ trigger(:del) }`
         after delete on `#{ @origin.name }` for each row
         delete ignore from `#{ @destination.name }` #{ SqlHelper.annotation }
-        where `#{ @destination.name }`.`#{ @order_column }` = OLD.`#{ @order_column }`
+        where `#{ @destination.name }`.`id` = OLD.`id`
       }
     end
 
     def trigger(type)
-      "lhmt_#{ type }_#{ @origin.name }"
+      "lhmt_#{ type }_#{ @origin.name }"[0...64]
+    end
+
+    def expected_triggers
+      [trigger(:ins), trigger(:upd), trigger(:del)]
     end
 
     def validate
-      unless @connection.table_exists?(@origin.name)
+      unless @connection.data_source_exists?(@origin.name)
         error("#{ @origin.name } does not exist")
       end
 
-      unless @connection.table_exists?(@destination.name)
+      unless @connection.data_source_exists?(@destination.name)
         error("#{ @destination.name } does not exist")
       end
     end
 
     def before
-      @connection.sql(entangle)
+      entangle.each do |stmt|
+        @retry_helper.with_retries do |retriable_connection|
+          retriable_connection.execute(stmt)
+        end
+      end
     end
 
     def after
-      @connection.sql(untangle)
+      untangle.each do |stmt|
+        @retry_helper.with_retries do |retriable_connection|
+          retriable_connection.execute(stmt)
+        end
+      end
     end
 
     def revert
       after
     end
 
-  private
+    private
 
     def strip(sql)
       sql.strip.gsub(/\n */, "\n")

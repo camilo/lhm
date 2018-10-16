@@ -6,124 +6,161 @@ require File.expand_path(File.dirname(__FILE__)) + '/unit_helper'
 require 'lhm/table'
 require 'lhm/migration'
 require 'lhm/chunker'
+require 'lhm/throttler'
 
 describe Lhm::Chunker do
   include UnitHelper
 
   before(:each) do
-    @origin      = Lhm::Table.new("origin")
-    @destination = Lhm::Table.new("destination")
-    @migration   = Lhm::Migration.new(@origin, @destination, "id")
-    @chunker     = Lhm::Chunker.new(@migration, nil, { :start => 1, :limit => 10 })
+    @origin = Lhm::Table.new('foo')
+    @destination = Lhm::Table.new('bar')
+    @migration = Lhm::Migration.new(@origin, @destination)
+    @connection = mock()
+    # This is a poor man's stub
+    @throttler = Object.new
+    def @throttler.run
+      # noop
+    end
+    def @throttler.stride
+      1
+    end
+
+    @chunker = Lhm::Chunker.new(@migration, @connection, :throttler => @throttler,
+                                                         :start     => 1,
+                                                         :limit     => 10)
   end
 
-  describe "copy into" do
-    before(:each) do
-      @origin.columns["secret"] = { :metadata => "VARCHAR(255)"}
-      @destination.columns["secret"] = { :metadata => "VARCHAR(255)"}
-    end
+  describe '#run' do
 
-    it "should copy the correct range and column" do
-      @chunker.copy(from = 1, to = 100).must_equal(
-        "insert ignore into `destination` (`secret`) " +
-        "select origin.`secret` from `origin` " +
-        "where origin.`id` between 1 and 100"
-      )
-    end
-  end
-
-  describe "copy into with a different column to order by" do
-    before(:each) do
-      @migration   = Lhm::Migration.new(@origin, @destination, "weird_id")
-      @chunker     = Lhm::Chunker.new(@migration, nil, { :start => 1, :limit => 10 })
-      @origin.columns["secret"] = { :metadata => "VARCHAR(255)"}
-      @destination.columns["secret"] = { :metadata => "VARCHAR(255)"}
-    end
-
-    it "should copy the correct range and column" do
-      @chunker.copy(from = 1, to = 100).must_equal(
-        "insert ignore into `destination` (`secret`) " +
-        "select origin.`secret` from `origin` " +
-        "where origin.`weird_id` between 1 and 100"
-      )
-    end
-  end
-
-
-  describe "invalid" do
-    before do
-      @chunker = Lhm::Chunker.new(@migration, nil, { :start => 0, :limit => -1 })
-    end
-
-    it "should have zero chunks" do
-      @chunker.traversable_chunks_size.must_equal 0
-    end
-
-    it "should not iterate" do
-      @chunker.up_to do |bottom, top|
-        raise "should not iterate"
+    it 'detects the max id to use in the chunk using the stride and use it if it is lower than the limit' do
+      def @throttler.stride
+        5
       end
-    end
-  end
 
-  describe "one" do
-    before do
-      @chunker = Lhm::Chunker.new(@migration, nil, {
-        :stride => 100_000, :start => 1, :limit => 300_000
-      })
-    end
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 4/)).returns(7)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 8 order by id limit 1 offset 4/)).returns(21)
+      @connection.expects(:update).with(regexp_matches(/between 1 and 7/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 8 and 10/)).returns(2)
 
-    it "should have one chunk" do
-      @chunker.traversable_chunks_size.must_equal 3
+      @chunker.run
     end
 
-    it "should lower bound chunk on 1" do
-      @chunker.bottom(chunk = 1).must_equal 1
-    end
 
-    it "should upper bound chunk on 100" do
-      @chunker.top(chunk = 1).must_equal 100_000
-    end
-  end
-
-  describe "two" do
-    before do
-      @chunker = Lhm::Chunker.new(@migration, nil, {
-        :stride => 100_000, :start => 2, :limit => 150_000
-      })
-    end
-
-    it "should have two chunks" do
-      @chunker.traversable_chunks_size.must_equal 2
-    end
-
-    it "should lower bound second chunk on 100_000" do
-      @chunker.bottom(chunk = 2).must_equal 100_002
-    end
-
-    it "should upper bound second chunk on 150_000" do
-      @chunker.top(chunk = 2).must_equal 150_000
-    end
-  end
-
-  describe "iterating" do
-    before do
-      @chunker = Lhm::Chunker.new(@migration, nil, {
-        :stride => 100, :start => 53, :limit => 121
-      })
-    end
-
-    it "should iterate" do
-      @chunker.up_to do |bottom, top|
-        bottom.must_equal 53
-        top.must_equal 121
+    it 'chunks the result set according to the stride size' do
+      def @throttler.stride
+        2
       end
-    end
-  end
 
-  describe "throttling" do
-    it "should default to 100 milliseconds" do
-      @chunker.throttle_seconds.must_equal 0.1
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 1/)).returns(2)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 3 order by id limit 1 offset 1/)).returns(4)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 5 order by id limit 1 offset 1/)).returns(6)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 7 order by id limit 1 offset 1/)).returns(8)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 9 order by id limit 1 offset 1/)).returns(10)
+
+      @connection.expects(:update).with(regexp_matches(/between 1 and 2/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 3 and 4/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 5 and 6/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 7 and 8/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 9 and 10/)).returns(2)
+
+      @chunker.run
+    end
+
+    it 'handles stride changes during execution' do
+      # roll our own stubbing
+      def @throttler.stride
+        @run_count ||= 0
+        @run_count = @run_count + 1
+        if @run_count > 1
+          3
+        else
+          2
+        end
+      end
+
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 1/)).returns(2)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 3 order by id limit 1 offset 2/)).returns(5)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 6 order by id limit 1 offset 2/)).returns(8)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 9 order by id limit 1 offset 2/)).returns(nil)
+
+      @connection.expects(:update).with(regexp_matches(/between 1 and 2/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 3 and 5/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 6 and 8/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 9 and 10/)).returns(2)
+
+      @chunker.run
+    end
+
+    it 'correctly copies single record tables' do
+      @chunker = Lhm::Chunker.new(@migration, @connection, :throttler => @throttler,
+                                                           :start     => 1,
+                                                           :limit     => 1)
+
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 0/)).returns(nil)
+      @connection.expects(:update).with(regexp_matches(/between 1 and 1/)).returns(1)
+
+      @chunker.run
+    end
+
+    it 'copies the last record of a table, even it is the start of the last chunk' do
+      @chunker = Lhm::Chunker.new(@migration, @connection, :throttler => @throttler,
+                                                           :start     => 2,
+                                                           :limit     => 10)
+      def @throttler.stride
+        2
+      end
+
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 2 order by id limit 1 offset 1/)).returns(3)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 4 order by id limit 1 offset 1/)).returns(5)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 6 order by id limit 1 offset 1/)).returns(7)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 8 order by id limit 1 offset 1/)).returns(9)
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 10 order by id limit 1 offset 1/)).returns(nil)
+
+      @connection.expects(:update).with(regexp_matches(/between 2 and 3/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 4 and 5/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 6 and 7/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 8 and 9/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/between 10 and 10/)).returns(1)
+
+      @chunker.run
+    end
+
+
+    it 'separates filter conditions from chunking conditions' do
+      @chunker = Lhm::Chunker.new(@migration, @connection, :throttler => @throttler,
+                                                           :start     => 1,
+                                                           :limit     => 2)
+      def @throttler.stride
+        2
+      end
+
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 1/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/where \(foo.created_at > '2013-07-10' or foo.baz = 'quux'\) and `foo`/)).returns(1)
+
+      def @migration.conditions
+        "where foo.created_at > '2013-07-10' or foo.baz = 'quux'"
+      end
+
+      @chunker.run
+    end
+
+    it "doesn't mess with inner join filters" do
+      @chunker = Lhm::Chunker.new(@migration, @connection, :throttler => @throttler,
+                                                           :start     => 1,
+                                                           :limit     => 2)
+
+      def @throttler.stride
+        2
+      end
+
+      @connection.expects(:select_value).with(regexp_matches(/where id >= 1 order by id limit 1 offset 1/)).returns(2)
+      @connection.expects(:update).with(regexp_matches(/inner join bar on foo.id = bar.foo_id and/)).returns(1)
+
+      def @migration.conditions
+        'inner join bar on foo.id = bar.foo_id'
+      end
+
+      @chunker.run
     end
   end
 end

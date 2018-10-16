@@ -38,35 +38,37 @@ module Lhm
         "lock table `#{ @origin.name }` write, `#{ @destination.name }` write",
         "alter table `#{ @origin.name }` rename `#{ @migration.archive_name }`",
         "alter table `#{ @destination.name }` rename `#{ @origin.name }`",
-        "commit",
-        "unlock tables"
+        'commit',
+        'unlock tables'
       ]
     end
 
-    def uncommitted(&block)
+    def uncommitted
       [
-        "set @lhm_auto_commit = @@session.autocommit",
-        "set session autocommit = 0",
+        'set @lhm_auto_commit = @@session.autocommit',
+        'set session autocommit = 0',
         yield,
-        "set session autocommit = @lhm_auto_commit"
+        'set session autocommit = @lhm_auto_commit'
       ].flatten
     end
 
     def validate
-      unless @connection.table_exists?(@origin.name) &&
-             @connection.table_exists?(@destination.name)
+      unless @connection.data_source_exists?(@origin.name) &&
+             @connection.data_source_exists?(@destination.name)
         error "`#{ @origin.name }` and `#{ @destination.name }` must exist"
       end
     end
 
-  private
+    private
 
     def revert
-      @connection.sql("unlock tables")
+      @connection.execute(tagged('unlock tables'))
     end
 
     def execute
-      @connection.sql(statements)
+      statements.each do |stmt|
+        @connection.execute(tagged(stmt))
+      end
     end
   end
 end

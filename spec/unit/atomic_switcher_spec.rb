@@ -12,20 +12,20 @@ describe Lhm::AtomicSwitcher do
 
   before(:each) do
     @start       = Time.now
-    @origin      = Lhm::Table.new("origin")
-    @destination = Lhm::Table.new("destination")
+    @origin      = Lhm::Table.new('origin')
+    @destination = Lhm::Table.new('destination')
     @migration   = Lhm::Migration.new(@origin, @destination, @start)
     @switcher    = Lhm::AtomicSwitcher.new(@migration, nil)
   end
 
-  describe "atomic switch" do
-    it "should perform a single atomic rename" do
+  describe 'atomic switch' do
+    it 'should perform a single atomic rename' do
       @switcher.
-        statements.
-        must_equal([
-          "rename table `origin` to `#{ @migration.archive_name }`, " +
-          "`destination` to `origin`"
-        ])
+        atomic_switch.
+        must_equal(
+          "rename table `origin` to `#{ @migration.archive_name }`, " \
+          '`destination` to `origin`'
+        )
     end
   end
 end

@@ -1,0 +1,18 @@
+containers:
+  default:
+    docker: circleci/ruby:2.5.1
+
+steps:
+- label: Tests
+  timeout: 15m
+  cache:
+    - /usr/local/bundle
+    - /app/dbdeployer/binaries
+  run:
+  - bundle check || bundle install
+  - sudo apt-get update
+  - sudo apt-get install numactl libaio-dev
+  - ./dbdeployer/install.sh
+  - bundle exec rake integration
+  - bundle exec rake unit
+
