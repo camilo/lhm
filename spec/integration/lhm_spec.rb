@@ -2,7 +2,6 @@
 # Schmidt
 
 require File.expand_path(File.dirname(__FILE__)) + '/integration_helper'
-require 'pry'
 describe Lhm do
   include IntegrationHelper
 
