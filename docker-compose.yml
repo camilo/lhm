@@ -2,8 +2,8 @@ services:
   #  Writer
   mysql-1:
     container_name: mysql-1
-    image: mysql:8.0
-    platform: linux/arm64
+    image: percona:5.7
+    platform: linux/amd64
     command:
       --server-id=1
       --log-bin
@@ -12,7 +12,6 @@ services:
       --enforce-gtid-consistency=ON
       --read-only=OFF
       --max-connections=1000
-      --default-authentication-plugin=mysql_native_password
     hostname: 'mysql-1'
     volumes:
       - ./scripts/mysql/writer:/docker-entrypoint-initdb.d
@@ -24,8 +23,8 @@ services:
   #  Reader
   mysql-2:
     container_name: mysql-2
-    image: mysql:8.0
-    platform: linux/arm64
+    image: percona:5.7
+    platform: linux/amd64
     command:
       --server-id=2
       --log-bin
@@ -34,7 +33,6 @@ services:
       --enforce-gtid-consistency=ON
       --read-only=ON
       --max-connections=1000
-      --default-authentication-plugin=mysql_native_password
     hostname: 'mysql-2'
     volumes:
       - ./scripts/mysql/reader:/docker-entrypoint-initdb.d
@@ -46,8 +44,7 @@ services:
   #  Proxysql
   proxysql:
     container_name: proxysql
-    image: proxysql/proxysql:2.0.18_arm64
-    platform: linux/arm64
+    image: proxysql/proxysql:2.0.11
     volumes:
       - ./scripts/proxysql/proxysql.cnf:/etc/proxysql.cnf
     command: "proxysql -c /etc/proxysql.cnf -f --idle-threads"
