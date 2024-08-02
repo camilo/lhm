@@ -15,6 +15,7 @@ module Lhm
         @timeout_seconds = options[:delay] || DEFAULT_TIMEOUT
         @stride = options[:stride] || DEFAULT_STRIDE
         @backoff_reduction_factor = options[:backoff_reduction_factor] || DEFAULT_BACKOFF_REDUCTION_FACTOR
+        @min_stride_size = options[:min_stride_size] || MIN_STRIDE_SIZE
       end
 
 
@@ -25,8 +26,8 @@ module Lhm
           raise "Cannot backoff any further"
         end
 
-        if new_stride < MIN_STRIDE_SIZE
-          raise "Cannot reduce stride below #{MIN_STRIDE_SIZE}"
+        if new_stride < @min_stride_size
+          raise "Cannot reduce stride below #{@min_stride_size}"
         end
         @stride = new_stride
       end
